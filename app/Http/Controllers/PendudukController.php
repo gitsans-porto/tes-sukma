@@ -17,14 +17,21 @@ class PendudukController extends Controller
      */
     public function index(): View
     {
-        // Retrieve all penduduk data dengan relasi kartu keluarga
-        $penduduk = Penduduk::with('kartuKeluarga')
-            ->orderBy('nama') // Order by nama penduduk
-            ->get();
+        // Retrieve all penduduk data with proper ordering to maintain insertion sequence
+        // First, get all families ordered by their creation date, then get their members
+        $kartuKeluarga = \App\Models\KartuKeluarga::orderBy('created_at', 'asc')->get();
+        $groupedPenduduk = collect();
 
-        // Group penduduk data by kartu keluarga number untuk statistik per KK
-        // Peringatan: Pastikan ada pengecekan division by zero di view saat menghitung rata-rata
-        $groupedPenduduk = $penduduk->groupBy('no_kk');
+        foreach ($kartuKeluarga as $kk) {
+            $anggota = Penduduk::with('kartuKeluarga')
+                ->where('kartu_keluarga_id', $kk->id)
+                ->orderBy('created_at', 'asc') // Order family members by insertion date
+                ->get();
+
+            if ($anggota->isNotEmpty()) {
+                $groupedPenduduk->put($kk->no_kk, $anggota);
+            }
+        }
 
         // Calculate running number for display
         $no = 1;
@@ -92,97 +99,205 @@ class PendudukController extends Controller
     /**
      * Store a newly created resource in storage.
      */
-   public function store(Request $request)
+    /**
+     * Store a newly created resource in storage.
+     *
+     * @param \Illuminate\Http\Request $request
+     * @return \Illuminate\Http\RedirectResponse
+     */
+    public function store(Request $request): \Illuminate\Http\RedirectResponse
     {
-        // VALIDASI
-        $request->validate([
-            // Parent (KK)
-            'nomor_kk' => 'required|numeric|unique:kartu_keluarga,no_kk',
-            'kategori_sejahtera' => 'nullable',
-            'jenis_bangunan' => 'nullable',
-            'pemakaian_air' => 'nullable',
-            'jenis_bantuan' => 'nullable',
+        // VALIDASI DATA FORM - Clean validation with proper error messages
+        $validator = \Validator::make($request->all(), [
+            // Data Kartu Keluarga
+            'nomor_kk' => [
+                'required',
+                'numeric',
+                'digits:16',
+                'unique:kartu_keluarga,no_kk'
+            ],
+            'kategori_sejahtera' => 'nullable|string|max:50',
+            'jenis_bangunan' => 'nullable|string|max:100',
+            'pemakaian_air' => 'nullable|string|max:100',
+            'jenis_bantuan' => 'nullable|string|max:100',
 
-            // Child (Penduduk)
+            // Data Anggota Keluarga
             'anggota' => 'required|array|min:1',
-            'anggota.*.nik' => 'required|numeric|digits:16|unique:penduduks,nik',
-            'anggota.*.nama' => 'required|string|max:255',
-            'anggota.*.jenis_kelamin' => 'required|string|in:Laki-laki,Perempuan,L,P', // Accept both formats
-            'anggota.*.tempat_lahir' => 'required|string|max:255',
-            'anggota.*.tgl_lahir' => 'required|date',
-            'anggota.*.hubungan_keluarga' => 'required|string|max:255',
-            'anggota.*.tamatan' => 'required|string|max:255',
-            'anggota.*.pekerjaan' => 'required|string|max:255',
+            'anggota.*.nik' => [
+                'required',
+                'numeric',
+                'digits:16',
+                'unique:penduduks,nik'
+            ],
+            'anggota.*.nama' => 'required|string|max:255|regex:/^[a-zA-Z\s\.\-]+$/',
+            'anggota.*.jenis_kelamin' => 'required|string|in:Laki-laki,Perempuan,L,P,Male,Female',
+            'anggota.*.tempat_lahir' => 'required|string|max:100',
+            'anggota.*.tgl_lahir' => 'required|date|before:today',
+            'anggota.*.hubungan_keluarga' => 'required|string|max:50',
+            'anggota.*.tamatan' => 'required|string|max:100',
+            'anggota.*.pekerjaan' => 'required|string|max:100',
+        ], [
+            // Custom validation messages
+            'nomor_kk.required' => 'Nomor KK wajib diisi',
+            'nomor_kk.numeric' => 'Nomor KK harus berupa angka',
+            'nomor_kk.digits' => 'Nomor KK harus 16 digit',
+            'nomor_kk.unique' => 'Nomor KK sudah terdaftar',
+
+            'anggota.required' => 'Minimal harus ada 1 anggota keluarga',
+            'anggota.min' => 'Minimal harus ada 1 anggota keluarga',
+
+            'anggota.*.nik.required' => 'NIK anggota wajib diisi',
+            'anggota.*.nik.numeric' => 'NIK harus berupa angka',
+            'anggota.*.nik.digits' => 'NIK harus 16 digit',
+            'anggota.*.nik.unique' => 'NIK sudah terdaftar',
+
+            'anggota.*.nama.required' => 'Nama anggota wajib diisi',
+            'anggota.*.nama.regex' => 'Nama hanya boleh mengandung huruf, spasi, titik, dan tanda hubung',
+
+            'anggota.*.jenis_kelamin.required' => 'Jenis kelamin wajib dipilih',
+            'anggota.*.jenis_kelamin.in' => 'Jenis kelamin hanya boleh: Laki-laki, Perempuan, L, P, Male, atau Female',
+
+            'anggota.*.tempat_lahir.required' => 'Tempat lahir wajib diisi',
+
+            'anggota.*.tgl_lahir.required' => 'Tanggal lahir wajib dipilih',
+            'anggota.*.tgl_lahir.before' => 'Tanggal lahir tidak boleh hari ini atau masa depan',
+
+            'anggota.*.hubungan_keluarga.required' => 'Hubungan keluarga wajib dipilih',
+            'anggota.*.tamatan.required' => 'Pendidikan terakhir wajib dipilih',
+            'anggota.*.pekerjaan.required' => 'Pekerjaan wajib diisi',
         ]);
 
+        // If validation fails, redirect back with errors
+        if ($validator->fails()) {
+            return redirect()->back()
+                ->withErrors($validator)
+                ->withInput()
+                ->with('error', 'Validasi gagal. Periksa kembali data yang dimasukkan.');
+        }
+
         try {
+            // Use database transaction for data integrity
             DB::beginTransaction();
 
-            // Debug: Log request data
-            \Log::info('Penduduk Store Request Data:', [
-                'kk_data' => $request->only(['nomor_kk', 'kategori_sejahtera', 'jenis_bangunan']),
-                'anggota_count' => count($request->anggota ?? []),
-                'first_anggota_sample' => $request->anggota[0] ?? null,
-            ]);
-
-            // SIMPAN KK
-            $kkBaru = KartuKeluarga::create([
-                'no_kk' => $request->nomor_kk,   // ← perbaikan penting
+            // Step 1: Create Kartu Keluarga record
+            $kartuKeluargaData = [
+                'no_kk' => $request->nomor_kk,
                 'kategori_sejahtera' => $request->kategori_sejahtera,
                 'jenis_bangunan' => $request->jenis_bangunan,
                 'pemakaian_air' => $request->pemakaian_air,
                 'jenis_bantuan' => $request->jenis_bantuan,
-            ]);
+            ];
 
-            \Log::info('KK Created with ID: ' . $kkBaru->id);
+            $kartuKeluarga = KartuKeluarga::create($kartuKeluargaData);
 
-            // SIMPAN ANGGOTA DAN CATAT MUTASI
-            $anggotaCount = 0;
-            foreach ($request->anggota as $index => $orang) {
-                \Log::info("Processing anggota {$index}:", $orang);
-
-                $pendudukBaru = Penduduk::create([
-                    'kartu_keluarga_id' => $kkBaru->id,
-                    'nik' => $orang['nik'],
-                    'nama' => $orang['nama'],
-                    'jenis_kelamin' => $orang['jenis_kelamin'],
-                    'tempat_lahir' => $orang['tempat_lahir'],
-                    'tgl_lahir' => $orang['tgl_lahir'],
-                    'usia' => $orang['usia'] ?? null,  // aman
-                    'pekerjaan' => $orang['pekerjaan'],
-                    'hubungan_keluarga' => $orang['hubungan_keluarga'],
-                    'tamatan' => $orang['tamatan'],
-                    'status' => 'HIDUP', // Set default status untuk penduduk baru
-                ]);
-
-                \Log::info("Penduduk created with ID: " . $pendudukBaru->id);
-
-                // CATAT MUTASI OTOMATIS
-                $this->catatMutasiPendudukBaru($pendudukBaru);
-                $anggotaCount++;
+            if (!$kartuKeluarga) {
+                throw new \Exception('Gagal membuat data Kartu Keluarga');
             }
 
+            // Step 2: Create Penduduk records for each family member
+            $savedMembers = [];
+            $totalMembers = count($request->anggota);
+
+            foreach ($request->anggota as $memberData) {
+                // Calculate age if not provided
+                if (!isset($memberData['usia']) || empty($memberData['usia'])) {
+                    $memberData['usia'] = Carbon::parse($memberData['tgl_lahir'])->age;
+                }
+
+                // Standardize gender format to single character for database compatibility
+                // Handle multiple input formats: Laki-laki, Perempuan, L, P, Male, Female
+                $genderInput = strtolower(trim($memberData['jenis_kelamin']));
+                if (in_array($genderInput, ['l', 'laki-laki', 'male'])) {
+                    $memberData['jenis_kelamin'] = 'L';
+                } elseif (in_array($genderInput, ['p', 'perempuan', 'female'])) {
+                    $memberData['jenis_kelamin'] = 'P';
+                } else {
+                    // Default fallback - if gender is not recognized, default to 'L'
+                    $memberData['jenis_kelamin'] = 'L';
+                    \Log::warning("Unrecognized gender input: {$memberData['jenis_kelamin']}, defaulting to 'L'");
+                }
+
+                $pendudukData = [
+                    'kartu_keluarga_id' => $kartuKeluarga->id,
+                    'nik' => $memberData['nik'],
+                    'nama' => ucwords(strtolower($memberData['nama'])),
+                    'jenis_kelamin' => $memberData['jenis_kelamin'],
+                    'tempat_lahir' => ucwords(strtolower($memberData['tempat_lahir'])),
+                    'tgl_lahir' => $memberData['tgl_lahir'],
+                    'usia' => $memberData['usia'],
+                    'pekerjaan' => ucwords(strtolower($memberData['pekerjaan'])),
+                    'hubungan_keluarga' => $memberData['hubungan_keluarga'],
+                    'tamatan' => $memberData['tamatan'],
+                    'status' => 'HIDUP', // Default status for new residents
+                ];
+
+                $penduduk = Penduduk::create($pendudukData);
+
+                if (!$penduduk) {
+                    throw new \Exception('Gagal menyimpan data anggota keluarga');
+                }
+
+                $savedMembers[] = $penduduk;
+
+                // NOTE: Mutations should only be created through Mutation page
+                // Not automatically when adding new residents
+            }
+
+            // Commit all changes
             DB::commit();
 
-            \Log::info("Transaction committed. Total anggota saved: {$anggotaCount}");
-
+            // Success response
             return redirect()->route('penduduk.index')
-                ->with('success', "Data berhasil disimpan. {$anggotaCount} anggota keluarga ditambahkan.");
+                ->with('success', "✅ Data berhasil disimpan! {$totalMembers} anggota keluarga dengan Nomor KK {$request->nomor_kk} telah ditambahkan.");
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            DB::rollBack();
+
+            return redirect()->back()
+                ->withErrors($e->validator)
+                ->withInput()
+                ->with('error', 'Validasi data gagal: ' . $e->getMessage());
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            DB::rollBack();
+
+            // Log database errors
+            \Log::error('Database Error in PendudukController@store:', [
+                'message' => $e->getMessage(),
+                'sql' => $e->getSql(),
+                'bindings' => $e->getBindings(),
+            ]);
+
+            $errorMessage = 'Terjadi kesalahan database. ';
+
+            if (str_contains($e->getMessage(), 'Duplicate entry')) {
+                if (str_contains($e->getMessage(), 'nik')) {
+                    $errorMessage = 'NIK sudah terdaftar dalam sistem. Gunakan NIK yang berbeda.';
+                } elseif (str_contains($e->getMessage(), 'no_kk')) {
+                    $errorMessage = 'Nomor KK sudah terdaftar dalam sistem. Gunakan Nomor KK yang berbeda.';
+                }
+            } else {
+                $errorMessage .= 'Hubungi administrator.';
+            }
+
+            return redirect()->back()
+                ->withInput()
+                ->with('error', $errorMessage);
 
         } catch (\Exception $e) {
             DB::rollBack();
 
-            // Debug: Log error details
-            \Log::error('Error saving penduduk data:', [
+            // Log general errors
+            \Log::error('General Error in PendudukController@store:', [
                 'message' => $e->getMessage(),
                 'file' => $e->getFile(),
                 'line' => $e->getLine(),
-                'trace' => $e->getTraceAsString()
+                'trace' => $e->getTraceAsString(),
             ]);
 
             return redirect()->back()
                 ->withInput()
-                ->with('error', 'Terjadi kesalahan: ' . $e->getMessage());
+                ->with('error', 'Terjadi kesalahan sistem: ' . $e->getMessage());
         }
     }
 
@@ -393,10 +508,8 @@ class PendudukController extends Controller
                     'tamatan' => $orang['tamatan'],
                 ]);
 
-                // CATAT MUTASI PENAMBAHAN (hanya untuk anggota benar-benar baru)
-                if (!$existingAnggota->has($orang['nik'])) {
-                    $this->catatMutasiPendudukBaru($pendudukBaru);
-                }
+                // NOTE: Mutations should only be created through Mutation page
+                // Not automatically when updating family data
             }
 
             DB::commit();

@@ -146,7 +146,7 @@
                                 <small class="text-muted">No. KK:</small> <strong>{{ $penduduk->kartuKeluarga->no_kk ?? '-' }}</strong>
                             </div>
                             <div class="col-md-4">
-                                <small class="text-muted">Jenis Kelamin:</small> <strong>{{ $penduduk->jenis_kelamin }}</strong>
+                                <small class="text-muted">Jenis Kelamin:</small> <strong>{{ $penduduk->jenis_kelamin_display }}</strong>
                             </div>
                             <div class="col-md-4">
                                 <small class="text-muted">Pekerjaan:</small> <strong>{{ $penduduk->pekerjaan }}</strong>

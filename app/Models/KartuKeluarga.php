@@ -9,7 +9,28 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class KartuKeluarga extends Model
 {
     protected $table = 'kartu_keluarga';
-    protected $guarded = [];
+
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
+    protected $fillable = [
+        'no_kk',
+        'kategori_sejahtera',
+        'jenis_bangunan',
+        'pemakaian_air',
+        'jenis_bantuan',
+    ];
+
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
+    protected $casts = [
+        'no_kk' => 'string',
+    ];
 
     // Relasi: Satu KK punya banyak Penduduk
     public function anggota(): HasMany

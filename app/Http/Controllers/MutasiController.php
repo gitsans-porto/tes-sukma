@@ -18,11 +18,11 @@ class MutasiController extends Controller
     public function index(): View
     {
         // Retrieve all mutasi data with relasi penduduk dan kartu keluarga
-        // Order by created_at desc untuk memastikan record terbaru selalu di atas (row 1)
-        // Menggunakan created_at lebih andal daripada tanggal_kejadian untuk sorting deterministik
+        // Order by creation date to maintain insertion sequence (oldest first)
+        // This ensures new mutations appear at the end of the sequence
         $mutasi = Mutasi::with('penduduk.kartuKeluarga')
-            ->orderBy('created_at', 'desc') // Primary sorting: newest first
-            ->orderBy('tanggal_kejadian', 'desc') // Secondary sorting: event date
+            ->orderBy('created_at', 'asc') // Primary sorting: oldest first
+            ->orderBy('tanggal_kejadian', 'asc') // Secondary sorting: chronological
             ->get();
 
         return view('mutasi.index', compact('mutasi'));
@@ -40,8 +40,10 @@ class MutasiController extends Controller
             ->orderBy('nama')
             ->get();
 
-        // Get all KK untuk dropdown new penduduk (LAHIR/DATANG)
-        $kartuKeluarga = KartuKeluarga::orderBy('no_kk')->get();
+        // Get all KK dengan head of family untuk dropdown new penduduk (LAHIR/DATANG)
+        $kartuKeluarga = KartuKeluarga::with(['penduduk' => function($query) {
+            $query->where('hubungan_keluarga', 'Kepala Keluarga');
+        }])->orderBy('no_kk')->get();
 
         return view('mutasi.create', compact('penduduk', 'kartuKeluarga'));
     }
@@ -132,9 +134,13 @@ class MutasiController extends Controller
                         $penduduk->save();
                         $penduduk->delete(); // Soft delete: set deleted_at timestamp
 
-                    } else {
-                        // KASUS PINDAH: Update status biasa
-                        $penduduk->update(['status' => 'PINDAH']);
+                    } elseif ($request->jenis_mutasi === 'PINDAH') {
+                        // KASUS PINDAH: Gunakan soft delete seperti MENINGGAL
+                        // Ini akan menyembunyikan penduduk dari query normal population table
+                        // tapi tetap mempertahankan data untuk log mutasi dan keperluan audit trail
+                        $penduduk->status = 'PINDAH'; // Update status terlebih dahulu
+                        $penduduk->save();
+                        $penduduk->delete(); // Soft delete: set deleted_at timestamp
                     }
 
                     $pendudukId = $penduduk->id;
@@ -226,7 +232,7 @@ class MutasiController extends Controller
         // VALIDASI
         $request->validate([
             'penduduk_id' => 'required|exists:penduduks,id',
-            'jenis_mutasi' => 'required|in:LAHIR,MATI,DATANG,PINDAH',
+            'jenis_mutasi' => 'required|in:LAHIR,MENINGGAL,DATANG,PINDAH',
             'tanggal_kejadian' => 'required|date',
             'lokasi_detail' => 'nullable|string|max:255',
             'keterangan' => 'nullable|string|max:1000',

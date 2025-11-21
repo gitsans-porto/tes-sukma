@@ -417,7 +417,7 @@
                                                         <option value="">Pilih Kartu Keluarga</option>
                                                         @foreach($kartuKeluarga as $kk)
                                                             <option value="{{ $kk->id }}" {{ old('kartu_keluarga_id') == $kk->id ? 'selected' : '' }}>
-                                                                {{ $kk->no_kk }} - {{ $kk->kepala_keluarga ?? 'Tidak Diketahui' }}
+                                                                {{ $kk->no_kk }} - {{ $kk->penduduk->first()->nama ?? 'Tidak ada Kepala Keluarga' }}
                                                             </option>
                                                         @endforeach
                                                     </select>

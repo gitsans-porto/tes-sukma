@@ -13,6 +13,11 @@ class Penduduk extends Model
 
     protected $table = 'penduduks'; // Explicit table name
 
+    /**
+     * The attributes that are mass assignable.
+     *
+     * @var array<int, string>
+     */
     protected $fillable = [
         'nik',
         'nama',
@@ -28,8 +33,15 @@ class Penduduk extends Model
         'status',
     ];
 
+    /**
+     * The attributes that should be cast.
+     *
+     * @var array<string, string>
+     */
     protected $casts = [
         'tgl_lahir' => 'date',
+        'nik' => 'string',
+        'usia' => 'integer',
     ];
 
     // Hitung usia otomatis
@@ -56,6 +68,21 @@ class Penduduk extends Model
     public function getPeranKeluargaAttribute()
     {
         return $this->hubungan_keluarga;
+    }
+
+    /**
+     * Get the display version of jenis_kelamin
+     */
+    public function getJenisKelaminDisplayAttribute()
+    {
+        switch ($this->jenis_kelamin) {
+            case 'L':
+                return 'Laki-laki';
+            case 'P':
+                return 'Perempuan';
+            default:
+                return $this->jenis_kelamin;
+        }
     }
 
     /**

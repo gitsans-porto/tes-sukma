@@ -22,6 +22,37 @@
                         </h4>
                     </div>
                     <div class="card-body">
+                        <!-- Session Flash Messages -->
+                        @if(session()->has('success'))
+                            <div class="alert alert-success alert-dismissible fade show" role="alert">
+                                <i class="bi bi-check-circle-fill"></i> {{ session('success') }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        @endif
+
+                        @if(session()->has('error'))
+                            <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                                <i class="bi bi-exclamation-triangle-fill"></i> {{ session('error') }}
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        @endif
+
+                        <!-- Display Validation Errors -->
+                        @if ($errors->any())
+                            <div class="alert alert-warning alert-dismissible fade show" role="alert">
+                                <h5 class="alert-heading">
+                                    <i class="bi bi-exclamation-triangle-fill"></i>
+                                    Terdapat kesalahan pada input data:
+                                </h5>
+                                <ul class="mb-0">
+                                    @foreach ($errors->all() as $error)
+                                        <li>{{ $error }}</li>
+                                    @endforeach
+                                </ul>
+                                <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                            </div>
+                        @endif
+
                         <form action="{{ route('penduduk.store') }}" method="POST" enctype="multipart/form-data">
                             @csrf
 
